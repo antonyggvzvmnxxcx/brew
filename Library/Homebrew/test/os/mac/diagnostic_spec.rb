@@ -38,7 +38,7 @@ describe Homebrew::Diagnostic::Checks do
     stub_const("RUBY_VERSION", "1.8.6")
 
     expect(checks.check_ruby_version)
-      .to match "Ruby version 1.8.6 is unsupported on 10.12"
+      .to match "Ruby version 1.8.6 is unsupported on macOS 10.12"
   end
 
   describe "#check_if_supported_sdk_available" do
@@ -47,6 +47,8 @@ describe Homebrew::Diagnostic::Checks do
     before do
       allow(DevelopmentTools).to receive(:installed?).and_return(true)
       allow(OS::Mac).to receive(:version).and_return(macos_version)
+      allow(OS::Mac::CLT).to receive(:below_minimum_version?).and_return(false)
+      allow(OS::Mac::Xcode).to receive(:below_minimum_version?).and_return(false)
     end
 
     it "doesn't trigger when SDK root is not needed" do

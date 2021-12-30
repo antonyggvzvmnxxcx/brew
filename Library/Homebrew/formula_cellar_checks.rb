@@ -59,7 +59,7 @@ module FormulaCellarChecks
       install to "libexec" and then symlink or wrap binaries into "bin".
       See formulae 'activemq', 'jruby', etc. for examples.
       The offending files are:
-        #{jars * "\n        "}
+        #{jars * "\n  "}
     EOS
   end
 
@@ -84,7 +84,7 @@ module FormulaCellarChecks
       Non-libraries were installed to "#{formula.lib}".
       Installing non-libraries to "lib" is discouraged.
       The offending files are:
-        #{non_libraries * "\n        "}
+        #{non_libraries * "\n  "}
     EOS
   end
 
@@ -114,7 +114,7 @@ module FormulaCellarChecks
       Homebrew suggests that this software is installed to "libexec" and then
       symlinked as needed.
       The offending files are:
-        #{generics * "\n        "}
+        #{generics * "\n  "}
     EOS
   end
 
@@ -127,7 +127,7 @@ module FormulaCellarChecks
       These '.pth' files are likely to cause link conflicts.
       Please invoke `setup.py` using 'Language::Python.setup_install_args'.
       The offending files are:
-        #{pth_found * "\n        "}
+        #{pth_found * "\n  "}
     EOS
   end
 
@@ -165,7 +165,7 @@ module FormulaCellarChecks
       They should instead be installed into:
         #{share}/emacs/site-lisp/#{name}
       The offending files are:
-        #{elisps * "\n        "}
+        #{elisps * "\n  "}
     EOS
   end
 
@@ -199,9 +199,9 @@ module FormulaCellarChecks
 
     <<~EOS
       Packages have been installed for:
-        #{pythons * "\n        "}
+        #{pythons * "\n  "}
       but this formula depends on:
-        #{python_deps * "\n        "}
+        #{python_deps * "\n  "}
     EOS
   end
 
@@ -287,7 +287,7 @@ module FormulaCellarChecks
   def check_cpuid_instruction(formula)
     return unless formula.prefix.directory?
     # TODO: add methods to `utils/ast` to allow checking for method use
-    return unless formula.path.read.include? "ENV.runtime_cpu_detection"
+    return unless (formula.prefix/".brew/#{formula.name}.rb").read.include? "ENV.runtime_cpu_detection"
     # Checking for `cpuid` only makes sense on Intel:
     # https://en.wikipedia.org/wiki/CPUID
     return unless Hardware::CPU.intel?
@@ -314,6 +314,57 @@ module FormulaCellarChecks
     "No `cpuid` instruction detected. #{formula} should not use `ENV.runtime_cpu_detection`."
   end
 
+  def check_binary_arches(formula)
+    return unless formula.prefix.directory?
+    # There is no `binary_executable_or_library_files` method for the generic OS
+    return if !OS.mac? && !OS.linux?
+
+    keg = Keg.new(formula.prefix)
+    mismatches = {}
+    keg.binary_executable_or_library_files.each do |file|
+      farch = file.arch
+      mismatches[file] = farch unless farch == Hardware::CPU.arch
+    end
+    return if mismatches.empty?
+
+    compatible_universal_binaries, mismatches = mismatches.partition do |file, arch|
+      arch == :universal && file.archs.include?(Hardware::CPU.arch)
+    end.map(&:to_h) # To prevent transformation into nested arrays
+
+    universal_binaries_expected = if formula.tap.present? && formula.tap.core_tap?
+      formula.tap.audit_exception(:universal_binary_allowlist, formula.name)
+    else
+      true
+    end
+    return if mismatches.empty? && universal_binaries_expected
+
+    mismatches_expected = formula.tap.blank? ||
+                          formula.tap.audit_exception(:mismatched_binary_allowlist, formula.name)
+    return if compatible_universal_binaries.empty? && mismatches_expected
+
+    return if universal_binaries_expected && mismatches_expected
+
+    s = ""
+
+    if mismatches.present? && !mismatches_expected
+      s += <<~EOS
+        Binaries built for a non-native architecture were installed into #{formula}'s prefix.
+        The offending files are:
+          #{mismatches.map { |m| "#{m.first}\t(#{m.last})" } * "\n  "}
+      EOS
+    end
+
+    if compatible_universal_binaries.present? && !universal_binaries_expected
+      s += <<~EOS
+        Unexpected universal binaries were found.
+        The offending files are:
+          #{compatible_universal_binaries.keys * "\n  "}
+      EOS
+    end
+
+    s
+  end
+
   def audit_installed
     @new_formula ||= false
 
@@ -334,6 +385,7 @@ module FormulaCellarChecks
     problem_if_output(check_plist(formula.prefix, formula.plist))
     problem_if_output(check_python_symlinks(formula.name, formula.keg_only?))
     problem_if_output(check_cpuid_instruction(formula))
+    problem_if_output(check_binary_arches(formula))
   end
   alias generic_audit_installed audit_installed
 

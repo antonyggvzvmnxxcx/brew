@@ -3,6 +3,8 @@
 
 # An adapter for casks to provide dependency information in a formula-like interface.
 class CaskDependent
+  attr_reader :cask
+
   def initialize(cask)
     @cask = cask
   end
@@ -16,7 +18,10 @@ class CaskDependent
   end
 
   def runtime_dependencies(ignore_missing: false)
-    recursive_dependencies ignore_missing: ignore_missing
+    recursive_dependencies(ignore_missing: ignore_missing).reject do |dependency|
+      tags = dependency.tags
+      tags.include?(:build) || tags.include?(:test)
+    end
   end
 
   def deps

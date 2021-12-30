@@ -3,6 +3,7 @@
 
 require "cli/parser"
 require "formula"
+require "api"
 
 module Homebrew
   extend T::Sig
@@ -87,7 +88,7 @@ module Homebrew
       formula_installs = {}
 
       ohai "Getting analytics data..."
-      analytics = Utils::Analytics.formulae_brew_sh_json("analytics/install/90d.json")
+      analytics = Homebrew::API::Analytics.fetch "install", 90
 
       if analytics.blank?
         raise UsageError,
@@ -122,8 +123,6 @@ module Homebrew
     uses_hash = {}
 
     all_formulae.each do |f|
-      next unless f.core_formula?
-
       deps = f.recursive_dependencies do |_, dep|
         Dependency.prune if dep.optional?
       end.map(&:to_formula)

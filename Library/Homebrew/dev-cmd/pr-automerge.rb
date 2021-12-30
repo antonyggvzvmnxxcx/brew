@@ -21,15 +21,18 @@ module Homebrew
              description: "Pull requests must have this label."
       comma_array "--without-labels",
                   description: "Pull requests must not have these labels (default: "\
-                               "`do not merge`, `new formula`, `automerge-skip`, `linux-only`, "\
-                               "`linux to homebrew-core`)."
+                               "`do not merge`, `new formula`, `automerge-skip`)."
       switch "--without-approval",
              description: "Pull requests do not require approval to be merged."
       switch "--publish",
              description: "Run `brew pr-publish` on matching pull requests."
       switch "--autosquash",
              description: "Instruct `brew pr-publish` to automatically reformat and reword commits "\
-                          "in the pull request to our preferred format."
+                          "in the pull request to our preferred format.",
+             replacement: "`--no-autosquash` to opt out"
+      switch "--no-autosquash",
+             description: "Instruct `brew pr-publish` to skip automatically reformatting and rewording commits "\
+                          "in the pull request to the preferred format."
       switch "--ignore-failures",
              description: "Include pull requests that have failing status checks."
 
@@ -44,8 +47,6 @@ module Homebrew
       "do not merge",
       "new formula",
       "automerge-skip",
-      "linux-only",
-      "linux to homebrew-core",
     ]
     tap = Tap.fetch(args.tap || CoreTap.instance.name)
 
@@ -71,7 +72,7 @@ module Homebrew
 
     publish_args = ["pr-publish"]
     publish_args << "--tap=#{tap}" if tap
-    publish_args << "--autosquash" if args.autosquash?
+    publish_args << "--no-autosquash" if args.no_autosquash?
     if args.publish?
       safe_system HOMEBREW_BREW_FILE, *publish_args, *pr_urls
     else

@@ -12,6 +12,7 @@ require "cask/cmd"
 require "cask/utils"
 require "cask/macos"
 require "upgrade"
+require "api"
 
 module Homebrew
   extend T::Sig
@@ -24,6 +25,9 @@ module Homebrew
       description <<~EOS
         Uninstall and then reinstall a <formula> or <cask> using the same options it was
         originally installed with, plus any appended options specific to a <formula>.
+
+        Unless `HOMEBREW_NO_INSTALLED_DEPENDENTS_CHECK` is set, `brew upgrade` or `brew reinstall` will be run for
+        outdated dependents and dependents with broken linkage, respectively.
 
         Unless `HOMEBREW_NO_INSTALL_CLEANUP` is set, `brew cleanup` will then be run for the
         reinstalled formulae or, every 30 days, for all formulae.
@@ -83,6 +87,22 @@ module Homebrew
 
   def reinstall
     args = reinstall_args.parse
+
+    # We need to use the bottle API instead of just using the formula file
+    # from an installed keg because it will not contain bottle information.
+    # As a consequence, `brew reinstall` will also upgrade outdated formulae
+    if Homebrew::EnvConfig.install_from_api?
+      args.named.each do |name|
+        formula = Formulary.factory(name)
+        next unless formula.any_version_installed?
+        next if formula.tap.present? && !formula.core_formula?
+        next unless Homebrew::API::Bottle.available?(name)
+
+        Homebrew::API::Bottle.fetch_bottles(name)
+      rescue FormulaUnavailableError
+        next
+      end
+    end
 
     formulae, casks = args.named.to_formulae_and_casks(method: :resolve)
                           .partition { |o| o.is_a?(Formula) }

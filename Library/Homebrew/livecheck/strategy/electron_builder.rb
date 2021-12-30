@@ -7,6 +7,9 @@ module Homebrew
       # The {ElectronBuilder} strategy fetches content at a URL and parses
       # it as an electron-builder appcast in YAML format.
       #
+      # This strategy is not applied automatically and it's necessary to use
+      # `strategy :electron_builder` in a `livecheck` block to apply it.
+      #
       # @api private
       class ElectronBuilder
         extend T::Sig
@@ -14,12 +17,11 @@ module Homebrew
         NICE_NAME = "electron-builder"
 
         # A priority of zero causes livecheck to skip the strategy. We do this
-        # for {ElectronBuilder} so we can selectively apply the strategy using
-        # `strategy :electron_builder` in a `livecheck` block.
+        # for {ElectronBuilder} so we can selectively apply it when appropriate.
         PRIORITY = 0
 
         # The `Regexp` used to determine if the strategy applies to the URL.
-        URL_MATCH_REGEX = %r{^https?://.+/.+\.ya?ml$}i.freeze
+        URL_MATCH_REGEX = %r{^https?://.+/[^/]+\.ya?ml(?:\?[^/?]+)?$}i.freeze
 
         # Whether the strategy can be applied to the provided URL.
         #
@@ -30,54 +32,57 @@ module Homebrew
           URL_MATCH_REGEX.match?(url)
         end
 
-        # Extract version information from page content.
+        # Parses YAML text and identifies versions in it.
         #
-        # @param content [String] the content to check
-        # @return [String]
+        # @param content [String] the YAML text to parse and check
+        # @return [Array]
         sig {
           params(
             content: String,
-            block:   T.nilable(T.proc.params(arg0: Hash).returns(String)),
-          ).returns(T.nilable(String))
+            regex:   T.nilable(Regexp),
+            block:   T.untyped,
+          ).returns(T::Array[String])
         }
-        def self.version_from_content(content, &block)
+        def self.versions_from_content(content, regex = nil, &block)
           require "yaml"
 
-          return unless (yaml = YAML.safe_load(content))
+          yaml = YAML.safe_load(content)
+          return [] if yaml.blank?
 
           if block
-            value = block.call(yaml)
-            return value if value.is_a?(String)
-
-            raise TypeError, "Return value of `strategy :electron_builder` block must be a string."
+            block_return_value = regex.present? ? yield(yaml, regex) : yield(yaml)
+            return Strategy.handle_block_return(block_return_value)
           end
 
-          yaml["version"]
+          version = yaml["version"]
+          version.present? ? [version] : []
         end
 
-        # Checks the content at the URL for new versions.
+        # Checks the YAML content at the URL for new versions.
         #
         # @param url [String] the URL of the content to check
-        # @param regex [Regexp] a regex used for matching versions in content
         # @return [Hash]
         sig {
           params(
-            url:   String,
-            regex: T.nilable(Regexp),
-            cask:  T.nilable(Cask::Cask),
-            block: T.nilable(T.proc.params(arg0: Hash).returns(String)),
+            url:     String,
+            regex:   T.nilable(Regexp),
+            _unused: T.nilable(T::Hash[Symbol, T.untyped]),
+            block:   T.untyped,
           ).returns(T::Hash[Symbol, T.untyped])
         }
-        def self.find_versions(url, regex, cask: nil, &block)
-          raise ArgumentError, "The #{T.must(name).demodulize} strategy does not support a regex." if regex
+        def self.find_versions(url:, regex: nil, **_unused, &block)
+          if regex.present? && block.blank?
+            raise ArgumentError, "#{T.must(name).demodulize} only supports a regex when using a `strategy` block"
+          end
 
-          match_data = { matches: {}, regex: regex, url: url }
+          match_data = { matches: {}, url: url }
 
           match_data.merge!(Strategy.page_content(url))
           content = match_data.delete(:content)
 
-          version = version_from_content(content, &block)
-          match_data[:matches][version] = Version.new(version) if version
+          versions_from_content(content, regex, &block).each do |version_text|
+            match_data[:matches][version_text] = Version.new(version_text)
+          end
 
           match_data
         end
